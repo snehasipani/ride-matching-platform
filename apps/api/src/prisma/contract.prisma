@@ -1,0 +1,55 @@
+// use prisma-next
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+
+  driver       Driver?
+}
+
+model Driver {
+  id          Int          @id @default(autoincrement())
+  userId      Int          @unique
+  status      DriverStatus @default(OFFLINE)
+  vehicleType String
+  createdAt   DateTime     @default(now())
+
+  user        User         @relation(fields: [userId], references: [id])
+}
+model Ride {
+  id             Int        @id @default(autoincrement())
+  riderId        Int
+  driverId       Int?
+  status         RideStatus @default(REQUESTED)
+
+  pickupLat      Float
+  pickupLng      Float
+  destinationLat Float
+  destinationLng Float
+
+  createdAt      DateTime   @default(now())
+
+  rider          User       @relation(fields: [riderId], references: [id])
+  driver         Driver?    @relation(fields: [driverId], references: [id])
+}
+enum UserRole {
+  RIDER
+  DRIVER
+}
+
+enum DriverStatus {
+  OFFLINE
+  AVAILABLE
+  ON_TRIP
+}
+enum RideStatus {
+  REQUESTED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
