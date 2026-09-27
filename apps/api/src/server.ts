@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
-
+import { calculateDistance } from "./distance.js";
+import redis, { connectRedis } from "./redis.js";
 (globalThis as any).Temporal = Temporal;
 import { db } from "./prisma/db.js";
 // console.log(
@@ -47,6 +48,246 @@ app.get("/users", async (req, res) => {
         console.error(error);
         res.status(500).json({
             message: "Database query failed"
+        });
+    }
+});
+app.get("/rides/:id/match", async (req, res) => {
+    const rideId = Number(req.params.id);
+
+    try {
+        const ride = await db.orm.public.Ride
+            .where({ id: rideId })
+            .first();
+
+        if (!ride) {
+            return res.status(404).json({
+                message: "Ride not found"
+            });
+        }
+
+        // Get available drivers from PostgreSQL
+        const drivers = await db.orm.public.Driver
+            .where({ status: "AVAILABLE" })
+            .all();
+
+        if (drivers.length === 0) {
+            return res.status(404).json({
+                message: "No available drivers"
+            });
+        }
+
+        // Get live locations from Redis
+        const driversWithLocation = [];
+
+        for (const driver of drivers) {
+            const location = await redis.hGetAll(
+                `driver:${driver.id}:location`
+            );
+
+            if (
+                location.latitude &&
+                location.longitude
+            ) {
+                driversWithLocation.push({
+                    driver,
+                    latitude: Number(location.latitude),
+                    longitude: Number(location.longitude)
+                });
+            }
+        }
+
+        if (driversWithLocation.length === 0) {
+            return res.status(404).json({
+                message: "No available drivers with location"
+            });
+        }
+
+        // Find nearest driver
+        const nearestDriver = driversWithLocation.reduce(
+            (nearest, current) => {
+                const distance = calculateDistance(
+                    ride.pickupLat,
+                    ride.pickupLng,
+                    current.latitude,
+                    current.longitude
+                );
+
+                if (
+                    nearest === null ||
+                    distance < nearest.distance
+                ) {
+                    return {
+                        driver: current.driver,
+                        distance
+                    };
+                }
+
+                return nearest;
+            },
+            null as {
+                driver: typeof driversWithLocation[number]["driver"];
+                distance: number;
+            } | null
+        );
+
+        // Assign driver to ride
+        await db.orm.public.Ride
+            .where({ id: rideId })
+            .updateAll({
+                driverId: nearestDriver!.driver.id
+            });
+
+        res.json({
+            rideId: ride.id,
+            driverId: nearestDriver!.driver.id,
+            distanceKm: nearestDriver!.distance
+        });
+
+    } catch (error) {
+        console.error("RIDE MATCHING ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to match driver"
+        });
+    }
+});
+app.patch("/rides/:id/accept", async (req, res) => {
+    const rideId = Number(req.params.id);
+
+    try {
+        const ride = await db.orm.public.Ride
+            .where({ id: rideId })
+            .all();
+
+        if (ride.length === 0) {
+            return res.status(404).json({
+                message: "Ride not found"
+            });
+        }
+
+        if (ride[0].status !== "REQUESTED") {
+            return res.status(400).json({
+                message: "Ride cannot be accepted"
+            });
+        }
+
+        const matched = await db.orm.public.Ride
+            .where({ id: rideId })
+            .all();
+
+        if (!matched[0].driverId) {
+            return res.status(400).json({
+                message: "No driver assigned"
+            });
+        }
+
+        const result = await db.orm.public.Ride
+            .where({ id: rideId })
+            .updateAll({
+                status: "ACCEPTED"
+            });
+
+        await db.orm.public.Driver
+            .where({ id: matched[0].driverId })
+            .updateAll({
+                status: "ON_TRIP"
+            });
+
+        res.json(result);
+
+    } catch (error) {
+        console.error("ACCEPT RIDE ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to accept ride"
+        });
+    }
+});
+app.patch("/rides/:id/start", async (req, res) => {
+    const rideId = Number(req.params.id);
+
+    try {
+        const ride = await db.orm.public.Ride
+            .where({ id: rideId })
+            .first();
+
+        if (!ride) {
+            return res.status(404).json({
+                message: "Ride not found"
+            });
+        }
+
+        if (ride.status !== "ACCEPTED") {
+            return res.status(400).json({
+                message: "Ride cannot be started"
+            });
+        }
+
+        const result = await db.orm.public.Ride
+            .where({ id: rideId })
+            .updateAll({
+                status: "IN_PROGRESS"
+            });
+
+        res.json(result);
+
+    } catch (error) {
+        console.error("START RIDE ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to start ride"
+        });
+    }
+});
+app.patch("/rides/:id/complete", async (req, res) => {
+    const rideId = Number(req.params.id);
+
+    try {
+        const ride = await db.orm.public.Ride
+            .where({ id: rideId })
+            .first();
+
+        if (!ride) {
+            return res.status(404).json({
+                message: "Ride not found"
+            });
+        }
+
+        if (ride.status !== "IN_PROGRESS") {
+            return res.status(400).json({
+                message: "Ride cannot be completed"
+            });
+        }
+
+        if (!ride.driverId) {
+            return res.status(400).json({
+                message: "No driver assigned"
+            });
+        }
+
+        await db.orm.public.Ride
+            .where({ id: rideId })
+            .updateAll({
+                status: "COMPLETED"
+            });
+
+        await db.orm.public.Driver
+            .where({ id: ride.driverId })
+            .updateAll({
+                status: "AVAILABLE"
+            });
+
+        const updatedRide = await db.orm.public.Ride
+            .where({ id: rideId })
+            .first();
+
+        res.json(updatedRide);
+
+    } catch (error) {
+        console.error("COMPLETE RIDE ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to complete ride"
         });
     }
 });
@@ -129,6 +370,29 @@ app.get("/drivers", async (req, res) => {
 
         res.status(500).json({
             message: "Database query failed"
+        });
+    }
+});
+app.get("/drivers/:id", async (req, res) => {
+    const driverId = Number(req.params.id);
+
+    try {
+        const driver = await db.orm.public.Driver
+            .where({ id: driverId })
+            .first();
+
+        if (!driver) {
+            return res.status(404).json({
+                message: "Driver not found"
+            });
+        }
+
+        res.json(driver);
+    } catch (error) {
+        console.error("GET DRIVER ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to fetch driver"
         });
     }
 });
@@ -264,8 +528,59 @@ app.patch("/rides/:id/cancel", async (req, res) => {
         });
     }
 });
-const PORT = process.env.PORT || 5000;
+app.get("/drivers/available", async (req, res) => {
+    try {
+        const drivers = await db.orm.public.Driver
+            .where({ status: "AVAILABLE" })
+            .all();
 
+        res.json(drivers);
+    } catch (error) {
+        console.error("AVAILABLE DRIVERS ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to fetch available drivers"
+        });
+    }
+});
+app.patch("/drivers/:id/location", async (req, res) => {
+    const driverId = Number(req.params.id);
+    const { latitude, longitude } = req.body;
+
+    if (
+        typeof latitude !== "number" ||
+        typeof longitude !== "number" ||
+        latitude < -90 ||
+        latitude > 90 ||
+        longitude < -180 ||
+        longitude > 180
+    ) {
+        return res.status(400).json({
+            message: "Invalid latitude or longitude"
+        });
+    }
+
+    try {
+      await redis.hSet(`driver:${driverId}:location`, {
+    latitude: String(latitude),
+    longitude: String(longitude)
+});
+
+res.json({
+    driverId,
+    latitude,
+    longitude
+});
+    } catch (error) {
+        console.error("DRIVER LOCATION ERROR:", error);
+
+        res.status(500).json({
+            message: "Failed to update driver location"
+        });
+    }
+});
+const PORT = process.env.PORT || 5000;
+await connectRedis();
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });

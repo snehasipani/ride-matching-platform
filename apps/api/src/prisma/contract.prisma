@@ -9,6 +9,7 @@ model User {
   createdAt    DateTime @default(now())
 
   driver       Driver?
+  rides        Ride[]   @relation("RiderRides")
 }
 
 model Driver {
@@ -16,10 +17,16 @@ model Driver {
   userId      Int          @unique
   status      DriverStatus @default(OFFLINE)
   vehicleType String
+
+  latitude    Float?
+  longitude   Float?
+
   createdAt   DateTime     @default(now())
 
   user        User         @relation(fields: [userId], references: [id])
+  rides       Ride[]       @relation("DriverRides")
 }
+
 model Ride {
   id             Int        @id @default(autoincrement())
   riderId        Int
@@ -33,9 +40,10 @@ model Ride {
 
   createdAt      DateTime   @default(now())
 
-  rider          User       @relation(fields: [riderId], references: [id])
-  driver         Driver?    @relation(fields: [driverId], references: [id])
+  rider          User       @relation("RiderRides", fields: [riderId], references: [id])
+  driver         Driver?    @relation("DriverRides", fields: [driverId], references: [id])
 }
+
 enum UserRole {
   RIDER
   DRIVER
@@ -46,6 +54,7 @@ enum DriverStatus {
   AVAILABLE
   ON_TRIP
 }
+
 enum RideStatus {
   REQUESTED
   ACCEPTED

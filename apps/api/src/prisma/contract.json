@@ -94,6 +94,20 @@
                   "kind": "scalar"
                 }
               },
+              "latitude": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/float8@1",
+                  "kind": "scalar"
+                }
+              },
+              "longitude": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/float8@1",
+                  "kind": "scalar"
+                }
+              },
               "status": {
                 "nullable": false,
                 "type": {
@@ -123,6 +137,21 @@
               }
             },
             "relations": {
+              "rides": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "driverId"
+                  ]
+                },
+                "to": {
+                  "model": "Ride",
+                  "namespace": "public"
+                }
+              },
               "user": {
                 "cardinality": "N:1",
                 "nullable": false,
@@ -147,6 +176,12 @@
                 },
                 "id": {
                   "column": "id"
+                },
+                "latitude": {
+                  "column": "latitude"
+                },
+                "longitude": {
+                  "column": "longitude"
                 },
                 "status": {
                   "column": "status"
@@ -369,6 +404,21 @@
                   "model": "Driver",
                   "namespace": "public"
                 }
+              },
+              "rides": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "riderId"
+                  ]
+                },
+                "to": {
+                  "model": "Ride",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -431,6 +481,16 @@
                   },
                   "nativeType": "int4",
                   "nullable": false
+                },
+                "latitude": {
+                  "codecId": "pg/float8@1",
+                  "nativeType": "float8",
+                  "nullable": true
+                },
+                "longitude": {
+                  "codecId": "pg/float8@1",
+                  "nativeType": "float8",
+                  "nullable": true
                 },
                 "status": {
                   "codecId": "pg/text@1",
@@ -724,7 +784,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "11f1094a6ad5fc7dbead71ff571aa654759ce2d0ae50d64ec30a1226f04f3ede"
+    "storageHash": "0f4072f63cb9c2ba9fcc2c84e0bdae6921d2b618bcfc5262e73a2a339343f3d1"
   },
   "capabilities": {
     "postgres": {
