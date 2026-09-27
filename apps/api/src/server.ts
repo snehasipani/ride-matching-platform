@@ -546,6 +546,15 @@ app.get("/drivers/available", async (req, res) => {
 app.patch("/drivers/:id/location", async (req, res) => {
     const driverId = Number(req.params.id);
     const { latitude, longitude } = req.body;
+    const driver = await db.orm.public.Driver
+    .where({ id: driverId })
+    .first();
+
+if (!driver) {
+    return res.status(404).json({
+        message: "Driver not found"
+    });
+}
 
     if (
         typeof latitude !== "number" ||
